@@ -32,6 +32,10 @@ Then load it one of two ways, never both (duplicate tools):
 
 Driver sessions are labeled `omp-<profile>-<session>`.
 
+### Pi
+
+The same checkout also runs in [Pi](https://github.com/earendil-works/pi) on Node 22.13 or newer. The cua-driver SDK ships a Node addon, so no extra install is needed. Load it from a file in Pi's extensions directory that imports `createDesktopExtension` from this checkout's `src/index.ts` by absolute path and calls it with Pi's API. On Pi, the prompt nudge goes into the turn's guidelines. A session switch replaces Pi's extension runtime, so `session_shutdown` releases the driver, and the next runtime starts it again. Pi has no `/extensions` panel; turn the extension off with an `extensions` filter in Pi's `settings.json`.
+
 ## Development
 
 ```sh

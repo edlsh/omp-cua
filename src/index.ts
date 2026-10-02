@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
+import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import { DesktopBackend, DesktopError, SUPPORTED_CONTRACT, type DriverImage, type DriverResult } from "./driver.ts";
 import { DESTRUCTIVE, desktopCandidates, JEV_MIN_CONFIDENCE, jevChooser, pickTarget } from "./jev.ts";
@@ -42,6 +43,18 @@ function toolArguments(input: unknown): unknown {
   // OMP's eval bridge forwards intent metadata to extension callbacks; drop only that reserved field.
   const { i: _intent, ...args } = input as Record<string, unknown>;
   return args;
+}
+
+type PromptEvent = { systemPrompt: readonly string[] | string; systemPromptOptions?: { promptGuidelines: string[] } };
+
+/**
+ * Adds lines to this turn's system prompt in either host. OMP passes the prompt as an array and takes a replacement;
+ * Pi renders a string from per-turn systemPromptOptions, so the lines join its guidelines there.
+ */
+function appendSystemPrompt(event: PromptEvent, lines: string[]): { systemPrompt: string[] } | undefined {
+  if (typeof event.systemPrompt !== "string") return { systemPrompt: [...event.systemPrompt, ...lines] };
+  event.systemPromptOptions?.promptGuidelines.push(...lines);
+  return undefined;
 }
 
 export function sessionLabel(sessionId: string, profile = (process.env.OMP_PROFILE ?? process.env.PI_PROFILE) || "default"): string {
@@ -232,7 +245,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
 
       async function request(step: Step): Promise<[string, Record<string, unknown>] | undefined> {
         switch (step.op) {
-          case "wait": await Bun.sleep(step.ms); signal?.throwIfAborted(); return undefined;
+          case "wait": await sleep(step.ms); signal?.throwIfAborted(); return undefined;
           case "clipboard": return ["clipboard_write", { text: step.text }];
           case "launch": {
             if (!step.bundle_id && !step.name) throw new DesktopError("invalid_step", "launch needs bundle_id or name.");
@@ -264,7 +277,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
         for (let attempt = 0; attempt < LAUNCH_WINDOW_POLLS; attempt++) {
           const found = await resolveTarget(ctx, { pid }, signal).catch(() => undefined);
           if (found) return found;
-          await Bun.sleep(LAUNCH_POLL_MS);
+          await sleep(LAUNCH_POLL_MS);
           signal?.throwIfAborted();
         }
         return undefined;
@@ -472,7 +485,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
     });
 
     // Enabled means nudged: turning the tools off in /extensions suspends this handler with them.
-    pi.on("before_agent_start", event => ({ systemPrompt: [...event.systemPrompt, DESKTOP_PROMPT, ...(jev ? [JEV_PROMPT] : [])] }));
+    pi.on("before_agent_start", event => appendSystemPrompt(event, [DESKTOP_PROMPT, ...(jev ? [JEV_PROMPT] : [])]));
 
     pi.on("context", event => {
       const messages = pruneScreenshots(event.messages as any[], TOOL_NAMES, KEEP_SCREENSHOTS);
@@ -480,6 +493,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
     });
 
     const reset = async () => { await desktop.reset().catch(() => {}); };
+    // OMP keeps the binding across a session switch; Pi replaces the runtime and fires session_shutdown instead.
     pi.on("session_switch", reset);
     pi.on("session_shutdown", async () => { await desktop.shutdown().catch(() => {}); });
   };
