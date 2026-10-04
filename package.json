@@ -4,7 +4,7 @@
   "description": "Native macOS desktop control for OMP agents, backed by the in-process cua-driver SDK",
   "type": "module",
   "exports": "./src/index.ts",
-  "files": ["src", "README.md"],
+  "files": ["src", "skills", "README.md"],
   "omp": {
     "extensions": ["./src/index.ts"]
   },

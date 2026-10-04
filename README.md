@@ -32,6 +32,8 @@ Then load it one of two ways, never both (duplicate tools):
 
 Driver sessions are labeled `omp-<profile>-<session>`.
 
+The package bundles the `desktop` agent skill in `skills/desktop`. OMP loads it with a linked plugin; with a local loader, link that folder into the profile's `skills` directory.
+
 ## Development
 
 ```sh
