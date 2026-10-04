@@ -65,6 +65,26 @@ export function foldMenuBar(tree: string): string {
   return out.join("\n");
 }
 
+const VALUE_ROLES = new Set(["AXSlider", "AXProgressIndicator", "AXLevelIndicator", "AXIncrementor", "AXValueIndicator"]);
+const INDEXED_LINE = /^(\s*- \[(\d+)\] (\S+)(?: \([^)]*\))?)(.*)$/;
+
+/** The driver tree omits values of sliders and other range controls; add them so their changes are observable. */
+function showValues(tree: string, elements: unknown): string {
+  if (!Array.isArray(elements)) return tree;
+  const values = new Map<number, string>();
+  for (const element of elements) {
+    const value = Number(element?.value);
+    if (VALUE_ROLES.has(element?.role) && typeof element.element_index === "number" && Number.isFinite(value)) {
+      values.set(element.element_index, String(Math.round(value * 100) / 100));
+    }
+  }
+  return tree.split("\n").map(line => {
+    const match = INDEXED_LINE.exec(line);
+    const value = match && VALUE_ROLES.has(match[3]!) && !/ = "/.test(line) ? values.get(Number(match[2])) : undefined;
+    return value === undefined ? line : `${match![1]} = "${value}"${match![4]}`;
+  }).join("\n");
+}
+
 export function renderState(result: DriverResult, options: { menus?: boolean } = {}): string {
   const json = result.json ?? {};
   const header = [
@@ -79,6 +99,7 @@ export function renderState(result: DriverResult, options: { menus?: boolean } =
   if (json.escalation) notes.push(`escalation: ${compact(json.escalation)}`);
   if (json.screenshot_width) notes.push(`screenshot ${json.screenshot_width}x${json.screenshot_height} (x,y are pixels of this image)`);
   let tree = redactTree(String(json.tree_markdown ?? "").split("\n").filter(line => !DRIVER_PARTIAL_NOTE.test(line)).join("\n").trimEnd());
+  tree = showValues(tree, json.elements);
   if (!options.menus) tree = foldMenuBar(tree);
   if (tree.length > TREE_CHAR_LIMIT) {
     tree = `${tree.slice(0, TREE_CHAR_LIMIT)}\n… tree cut at ${TREE_CHAR_LIMIT} chars; use query or a lower max_elements`;

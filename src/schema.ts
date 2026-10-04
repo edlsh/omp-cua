@@ -39,14 +39,30 @@ const step = z.discriminatedUnion("op", [
   z.object({ op: z.literal("key"), key: z.string().min(1).max(30).describe("return, tab, escape, up, down, delete, space, a, f5, ..."), modifiers: modifiers.optional(), index: index.optional(), delivery: delivery.optional() }).strict(),
   z.object({ op: z.literal("hotkey"), keys: z.array(z.string().min(1).max(30)).min(2).max(6).describe("Modifiers then one key, e.g. [\"cmd\",\"s\"]."), delivery: delivery.optional() }).strict(),
   z.object({ op: z.literal("scroll"), direction: z.enum(["up", "down", "left", "right"]), amount: z.number().int().min(1).max(50).optional(), by: z.enum(["line", "page"]).optional(), ...at, delivery: delivery.optional() }).strict(),
-  z.object({ op: z.literal("drag"), from: z.tuple([coord, coord]), to: z.tuple([coord, coord]), duration_ms: z.number().int().min(0).max(10_000).optional(), modifiers: modifiers.optional(), delivery: delivery.optional() }).strict(),
+  z.object({ op: z.literal("drag"), from: z.array(coord).length(2), to: z.array(coord).length(2), duration_ms: z.number().int().min(0).max(10_000).optional(), modifiers: modifiers.optional(), delivery: z.enum(["foreground"]).optional().describe("Drags always use foreground delivery: macOS has no background drag.") }).strict().describe("Drag between screenshot pixels, e.g. a slider knob. Briefly fronts the window."),
   z.object({ op: z.literal("menu"), path: z.array(z.string().min(1).max(200)).min(1).max(16).describe("Menu bar path, e.g. [\"File\",\"Export…\"].") }).strict(),
   z.object({ op: z.literal("launch"), bundle_id: z.string().min(1).optional(), name: z.string().min(1).optional(), urls: z.array(z.string().min(1)).max(20).optional() }).strict().describe("Launch or activate an app; the launched window becomes the target for later steps."),
   z.object({ op: z.literal("focus") }).strict().describe("Bring the target window to the front."),
   z.object({ op: z.literal("resize"), x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }).strict(),
   z.object({ op: z.literal("clipboard"), text: z.string().max(100_000) }).strict().describe("Write text to the clipboard."),
   z.object({ op: z.literal("wait"), ms: z.number().int().min(1).max(10_000) }).strict(),
-]);
+])
+.superRefine((value, ctx) => {
+  const hasIndex = "index" in value && value.index !== undefined;
+  const hasTarget = "target" in value && value.target !== undefined;
+  const hasX = "x" in value && value.x !== undefined;
+  const hasY = "y" in value && value.y !== undefined;
+  if (value.op !== "resize" && hasX !== hasY) ctx.addIssue({ code: "custom", message: "Pass both x and y." });
+  if (value.op !== "resize" && Number(hasIndex) + Number(hasTarget) + Number(hasX || hasY) > 1) {
+    ctx.addIssue({ code: "custom", message: "Pass only one of index, target, or x,y." });
+  }
+  if (["click", "double_click", "right_click", "set_value"].includes(value.op) && !hasIndex && !hasTarget && !hasX) {
+    ctx.addIssue({ code: "custom", message: "This step needs index, target, or x,y." });
+  }
+  if (value.op === "launch" && Number(Boolean(value.name)) + Number(Boolean(value.bundle_id)) !== 1) {
+    ctx.addIssue({ code: "custom", message: "launch needs exactly one of bundle_id or name." });
+  }
+});
 
 const expectation = z.object({
   role: z.string().min(1).optional().describe("AX role, e.g. AXButton."),

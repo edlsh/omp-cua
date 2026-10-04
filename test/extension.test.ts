@@ -61,8 +61,8 @@ function load(options?: DesktopOptions) {
   const notices: string[] = [];
   const ui = { notify: (message: string) => notices.push(message), setStatus: () => {} };
   const ctx: any = { sessionManager: { getSessionId: () => "abc-123" }, hasUI: true, ui, cwd: "/" };
-  const run = async (name: string, input: unknown) => {
-    const result = await tools.get(name).execute("call", input, undefined, undefined, ctx);
+  const run = async (name: string, input: unknown, signal?: AbortSignal) => {
+    const result = await tools.get(name).execute("call", input, signal, undefined, ctx);
     return { ...result, text: result.content.filter((part: any) => part.type === "text").map((part: any) => part.text).join("\n") };
   };
   const emit = async (event: string, payload: unknown = {}) => {
@@ -394,4 +394,99 @@ test("session shutdown ends this conversation's driver session and releases the 
   await emit("session_shutdown");
   expect(calls.filter(call => call.tool === "end_session").map(call => call.args)).toEqual([{ session: "omp-default-abc-123" }]);
   expect(shutdowns).toBe(1);
+});
+
+
+test("cancellation interrupts waits and prevents queued work from starting", async () => {
+  const { run } = load();
+  for (const queued of [false, true]) {
+    const controller = new AbortController();
+    const first = queued ? run("desktop_act", { steps: [{ op: "wait", ms: 30 }], observe: false }) : Promise.resolve();
+    const started = performance.now();
+    const waiting = run("desktop_act", { steps: [{ op: "wait", ms: 1000 }], observe: false }, controller.signal);
+    if (!queued) await Bun.sleep(10);
+    controller.abort();
+    const result = await waiting;
+    await first;
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("cancelled");
+    expect(performance.now() - started).toBeLessThan(250);
+  }
+});
+
+test("shutdown waits for admitted desktop work before ending sessions", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let admitted: () => void = () => {};
+  const started = new Promise<void>(resolve => { admitted = resolve; });
+  handlers.get_window_state = async () => { admitted(); await gate; return stateReply([{ role: "AXWindow" }]); };
+  const { run, emit } = load();
+  const observing = run("desktop_observe", { action: "state", pid: 10, window_id: 100 });
+  await started;
+  const shutdown = emit("session_shutdown");
+  try {
+    await Bun.sleep(10);
+    expect(calls.some(call => call.tool === "end_session")).toBe(false);
+    expect(shutdowns).toBe(0);
+  } finally { release(); await Promise.all([observing, shutdown]); }
+  expect(calls.filter(call => call.tool === "end_session")).toHaveLength(1);
+  expect(shutdowns).toBe(1);
+});
+
+test("invalid targeting and verification are rejected before any batch effects", async () => {
+  const { run } = load();
+  const invalid = [
+    { steps: [{ op: "click", index: 1, x: 20, y: 30 }] },
+    { steps: [{ op: "type", text: "x", y: 30 }] },
+    { steps: [{ op: "launch" }] },
+    { steps: [{ op: "launch", name: "Notes", bundle_id: "com.apple.Notes" }] },
+    { steps: [{ op: "set_value", value: "x" }] },
+    { steps: [{ op: "key", key: "tab" }], verify: [{ enabled: true }] },
+  ];
+  for (const params of invalid) {
+    const result = await run("desktop_act", { pid: 10, window_id: 100, ...params,
+      steps: [{ op: "clipboard", text: "must not be written" }, ...params.steps], observe: false });
+    expect(result.isError).toBe(true);
+    expect(calls).toEqual([]);
+  }
+});
+
+test("desktop_driver cannot redirect an action to another conversation session", async () => {
+  const { run } = load();
+  const result = await run("desktop_driver", { tool: "clipboard_write", args: { text: "x", session: "another-conversation" } });
+  expect(result.isError).toBe(true);
+  expect(result.text).toContain("session");
+  expect(calls).toEqual([]);
+});
+
+
+test("pixel drags default to foreground delivery because macOS has no background drag", async () => {
+  handlers.get_window_state = () => stateReply([{ role: "AXWindow" }]);
+  handlers.drag = args => args.delivery_mode === "foreground" ? { json: { effect: "unverifiable" } } : { isError: true, errorCode: "background_unavailable", text: "Background drag is unavailable on macOS" };
+  const { run } = load();
+  const result = await run("desktop_act", { pid: 10, window_id: 100, steps: [{ op: "drag", from: [1, 2], to: [3, 4] }], observe: false });
+  expect(result.isError).toBeUndefined();
+  expect(calls.find(call => call.tool === "drag")!.args.delivery_mode).toBe("foreground");
+});
+
+test("rendered state shows slider values the tree omits, so drags can be checked", async () => {
+  handlers.get_window_state = () => stateReply([{ role: "AXWindow" }, { role: "AXSlider", label: "Volume" }],
+    "- [0] AXWindow \"Mixer\"\n  - [1] AXSlider (Volume) [actions=[increment,decrement]]");
+  const original = handlers.get_window_state;
+  handlers.get_window_state = args => { const reply = original(args) as { json: any }; reply.json.elements[1].value = "8.330789465653268"; return reply; };
+  const { run } = load();
+  const state = await run("desktop_observe", { action: "state", pid: 10, window_id: 100 });
+  expect(state.text).toContain("- [1] AXSlider (Volume) = \"8.33\" [actions=[increment,decrement]]");
+});
+
+test("launch targets a unique visible window rather than a returned helper window", async () => {
+  handlers.launch_app = () => ({ json: { pid: 42, windows: [{ pid: 42, window_id: 421 }] } });
+  handlers.list_windows = () => ({ json: { windows: [
+    window({ pid: 42, window_id: 421, is_on_screen: false }),
+    window({ pid: 42, window_id: 420 }),
+  ] } });
+  const { run } = load();
+  const result = await run("desktop_act", { steps: [{ op: "launch", name: "Notes" }, { op: "hotkey", keys: ["cmd", "n"] }], observe: false });
+  expect(result.isError).toBeUndefined();
+  expect(calls.find(call => call.tool === "hotkey")!.args.window_id).toBe(420);
 });
