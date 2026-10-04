@@ -32,20 +32,9 @@ Then load it one of two ways, never both (duplicate tools):
 
 Driver sessions are labeled `omp-<profile>-<session>`.
 
-### Pi
-
-The same checkout runs in [Pi](https://github.com/earendil-works/pi) 1.x on Node 22.19 or newer; its `package.json` declares the extension under `pi`. The cua-driver SDK ships a Node addon, so no extra install is needed. Load it one way, never both:
-
-- As a package: `pi install /path/to/omp-desktop` (or `pi -e /path/to/omp-desktop` for one run). It reads the JEV key only from `AI_GATEWAY_API_KEY`.
-- With a local loader in `~/.pi/agent/extensions/` that imports `createDesktopExtension` from this checkout's `src/index.ts` and calls it with Pi's API, for example to pass a `jevApiKey` resolver. No cast is needed: `src/host.ts` is the host contract, and `bun run check` verifies both Pi's and OMP's `ExtensionAPI` against it.
-
-On Pi, the prompt nudge goes into the turn's guidelines. A session switch or `/reload` replaces Pi's extension runtime, so `session_shutdown` releases the driver, and the next runtime starts it again. Turn the extension off with `pi config` or an `extensions` filter in Pi's `settings.json`.
-
 ## Development
 
 ```sh
-bun run check                     # typecheck, including the Pi and OMP host contracts
-bun run test                      # unit tests, then Pi load, schema-validation, and agent-turn tests
-bun run test:live                 # macOS: a real Pi session observes a compiled fixture window
-SMOKE_ACT=1 bun run test:live     # also clicks, types, drags, scrolls, resizes, and uses menus in the fixture
+bun run check   # typecheck, including the OMP host contract
+bun run test    # unit tests
 ```

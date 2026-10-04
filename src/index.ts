@@ -45,17 +45,12 @@ function toolArguments(input: unknown): unknown {
 }
 
 
-/**
- * Adds lines to this turn's system prompt in either host. OMP passes the prompt as an array and takes a replacement;
- * Pi renders a string from per-turn systemPromptOptions, so the lines join its guidelines there.
- */
-function appendSystemPrompt(event: PromptEvent, lines: string[]): { systemPrompt: string[] } | undefined {
-  if (typeof event.systemPrompt !== "string") return { systemPrompt: [...event.systemPrompt, ...lines] };
-  event.systemPromptOptions?.promptGuidelines.push(...lines);
-  return undefined;
+/** Adds lines to this turn's system prompt: OMP passes it as an array and takes a replacement. */
+function appendSystemPrompt(event: PromptEvent, lines: string[]): { systemPrompt: string[] } {
+  return { systemPrompt: [...event.systemPrompt, ...lines] };
 }
 
-export function sessionLabel(sessionId: string, profile = (process.env.OMP_PROFILE ?? process.env.PI_PROFILE) || "default"): string {
+export function sessionLabel(sessionId: string, profile = process.env.OMP_PROFILE || "default"): string {
   const clean = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return `omp-${clean(profile).slice(0, 16) || "default"}-${clean(sessionId).slice(-12) || "session"}`;
 }
@@ -498,7 +493,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
     });
 
     const reset = async (_event: unknown, ctx: ExtensionContext) => { await serial(async () => { setJev(false, ctx); await desktop.reset(); }); };
-    // OMP keeps the binding across a session switch; Pi replaces the runtime and fires session_shutdown instead.
+    // OMP keeps the binding across a session switch, so a switch resets it; shutdown releases the driver.
     pi.on("session_switch", reset);
     pi.on("session_shutdown", async () => { await serial(() => desktop.shutdown()); });
   };

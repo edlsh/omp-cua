@@ -306,15 +306,11 @@ test("context pruning keeps the two newest desktop screenshots and leaves other 
   expect(await emit("context", { messages: messages.slice(1) })).toBeUndefined();
 });
 
-test("the prompt nudge follows the extension in OMP and Pi, and /desktop never turns stray words into prompts or toggles", async () => {
+test("the prompt nudge follows the extension, and /desktop never turns stray words into prompts or toggles", async () => {
   const { emit, command, sent, notices } = load();
   const nudged = () => emit("before_agent_start", { systemPrompt: ["base"] }) as Promise<{ systemPrompt: string[] } | undefined>;
 
   expect((await nudged())?.systemPrompt).toEqual(["base", expect.stringContaining("desktop_observe")]);
-  // Pi renders a string prompt from per-turn options: the nudge joins its guidelines and nothing replaces the prompt.
-  const piTurn = { systemPrompt: "base", systemPromptOptions: { promptGuidelines: ["existing"] } };
-  expect(await emit("before_agent_start", piTurn)).toBeUndefined();
-  expect(piTurn.systemPromptOptions.promptGuidelines).toEqual(["existing", expect.stringContaining("desktop_observe")]);
   for (const stray of ["off", "stauts", "Rename the Finder window's selected file to notes.txt", "jev"]) {
     await command(stray);
     expect(notices.at(-1)).toContain("Usage: /desktop");

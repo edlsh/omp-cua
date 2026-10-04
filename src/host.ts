@@ -1,4 +1,4 @@
-/** The small host surface used by desktop tools, shared by Pi and OMP. */
+/** The small slice of OMP's extension API used by desktop tools. */
 export interface DesktopContext {
   sessionManager: { getSessionId(): string };
   hasUI: boolean;
@@ -27,8 +27,7 @@ export interface DesktopTool {
 }
 
 export interface PromptEvent {
-  systemPrompt: readonly string[] | string;
-  systemPromptOptions?: { promptGuidelines: string[] };
+  systemPrompt: readonly string[];
 }
 
 export interface DesktopAPI {
@@ -40,6 +39,6 @@ export interface DesktopAPI {
   }): void;
   on(event: "before_agent_start", handler: (event: PromptEvent, ctx: DesktopContext) => void): void;
   on(event: "context", handler: (event: { messages: { role?: string; toolName?: string; content?: unknown }[] }, ctx: DesktopContext) => void): void;
-  // Pi replaces its runtime on session changes; OMP retains it and emits session_switch.
+  // OMP keeps the binding across a session switch and emits session_switch.
   on(event: "session_switch" | "session_shutdown", handler: (event: unknown, ctx: DesktopContext) => Promise<void>): void;
 }
