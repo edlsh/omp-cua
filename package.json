@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Native macOS desktop control for OMP agents, backed by the cua-driver CuaDriver.app daemon",
   "type": "module",
-  "keywords": ["omp", "oh-my-pi", "extension", "macos", "desktop", "computer-use", "cua"],
+  "keywords": ["omp", "oh-my-pi", "omp-plugin", "omp-extension", "extension", "macos", "desktop", "desktop-automation", "computer-use", "cua", "cua-driver", "accessibility", "ai-agent"],
   "author": "Enzo Lucchesi <enzo@edl.sh>",
   "license": "MIT",
   "repository": {
