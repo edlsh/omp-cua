@@ -1,5 +1,12 @@
-import type { CuaDriverLike, DriverMetadata } from "@trycua/cua-driver";
-import sharp from "sharp";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
+import type { CuaDriverLike, DriverMetadata, ToolResult } from "@trycua/cua-driver";
+
+const execFileAsync = promisify(execFile);
 
 export const SUPPORTED_CONTRACT = "0.8.";
 
@@ -23,20 +30,24 @@ export class DesktopError extends Error {
 
 const MAX_SCREENSHOT_BASE64_BYTES = 1_000_000;
 
+// OMP's extension loader cannot load sharp's native addon, so re-encode with macOS's built-in sips (JPEG; sips cannot write WebP).
 async function compressScreenshot(image: DriverImage): Promise<DriverImage> {
   if (image.data.length <= MAX_SCREENSHOT_BASE64_BYTES) return image;
-  const input = Buffer.from(image.data, "base64");
+  const dir = await mkdtemp(join(tmpdir(), "omp-cua-"));
   try {
+    const input = join(dir, "screenshot");
+    await writeFile(input, Buffer.from(image.data, "base64"));
     // Re-encode without resizing: screenshots and driver click coordinates must agree.
     for (const quality of [85, 70, 55]) {
-      const encoded = await sharp(input, { limitInputPixels: 32_000_000 })
-        .webp({ quality })
-        .toBuffer();
-      const data = encoded.toString("base64");
-      if (data.length <= MAX_SCREENSHOT_BASE64_BYTES) return { data, mimeType: "image/webp" };
+      const output = join(dir, `${quality}.jpg`);
+      await execFileAsync("/usr/bin/sips", ["-s", "format", "jpeg", "-s", "formatOptions", String(quality), input, "--out", output]);
+      const data = (await readFile(output)).toString("base64");
+      if (data.length <= MAX_SCREENSHOT_BASE64_BYTES) return { data, mimeType: "image/jpeg" };
     }
   } catch {
     throw new DesktopError("screenshot_encoding_failed", "Could not compress the screenshot. Request a smaller max_image_dimension.");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
   throw new DesktopError("screenshot_too_large", "Screenshot exceeds the 1 MB inline image budget. Request a smaller max_image_dimension.");
 }
@@ -50,14 +61,48 @@ const SESSION_TOOLS = new Set([
   "browser_dialog", "browser_set_input_files", "browser_download", "browser_pointer", "parse_visual_regions",
 ]);
 
-// The in-process runtime is a native dylib shared by every OMP binding (main agent and subagents).
-let shared: Promise<CuaDriverLike> | undefined;
-let users = 0;
+// Since 0.35 a get_window_state read returns only compact markdown. Snapshots need the structured `elements`
+// (element tokens, values), and truncation notes need the walk diagnostics that `verbose` restores.
+const STATE_DEFAULTS = { tree_format: "both", verbose: true };
 
+// One connection to the CuaDriver.app daemon for the life of this process. The daemon binds a session label to the
+// connection that started it, so a new connection could not revive this conversation's label. Every OMP binding (main
+// agent and subagents) and any re-import of this module must share it, so it lives on globalThis, not in module state.
+const CONNECTION = Symbol.for("omp-cua.cua-driver");
+interface ConnectionHolder { [CONNECTION]?: Promise<CuaDriverLike> }
+// SAFETY: only this module reads or writes the CONNECTION symbol property on globalThis.
+const connections = globalThis as typeof globalThis & ConnectionHolder;
+
+const DAEMON_START_MS = 15_000;
+
+// The CuaDriver.app daemon owns the Accessibility/Screen Recording grants and draws the agent cursor. Start it through
+// LaunchServices when it is not running, so macOS attributes it to the app; never fall back to the in-process runtime.
 async function createDriver(): Promise<CuaDriverLike> {
-  if (process.platform !== "darwin") throw new DesktopError("unsupported_platform", "omp-desktop only supports macOS.");
-  const { CuaDriver, DriverOptions } = await import("@trycua/cua-driver");
-  return CuaDriver.create(DriverOptions.create({ claudeCodeCompatibility: false }));
+  if (process.platform !== "darwin") throw new DesktopError("unsupported_platform", "omp-cua only supports macOS.");
+  // Dynamic on purpose: the SDK's native addon ships only for supported platforms, so it loads after the platform check.
+  const { CuaDriver } = await import("@trycua/cua-driver");
+  const driver = CuaDriver.connect(undefined);
+  if (driver.isAvailable()) return driver;
+  const { promise: launch, resolve } = Promise.withResolvers<boolean>();
+  execFile("/usr/bin/open", ["-n", "-g", "-a", "CuaDriver", "--args", "serve"], error => resolve(!error));
+  const launched = await launch;
+  if (launched) {
+    for (const deadline = Date.now() + DAEMON_START_MS; Date.now() < deadline;) {
+      await sleep(250);
+      if (driver.isAvailable()) return driver;
+    }
+  }
+  throw new DesktopError("driver_unavailable", launched
+    ? "CuaDriver.app did not start serving within 15 s. Check `cua-driver status` and `cua-driver doctor`."
+    : "CuaDriver.app is not installed. Install it with the official installer (https://cua.ai/driver/install.sh), then grant permissions with `cua-driver permissions grant`.");
+}
+
+/** A thrown daemon DriverError's own message is only its variant name; the real message is in `inner`. */
+function innerMessage(cause: unknown): string | undefined {
+  if (typeof cause !== "object" || cause === null || !("inner" in cause)) return undefined;
+  const inner = cause.inner;
+  if (typeof inner !== "object" || inner === null || !("message" in inner)) return undefined;
+  return typeof inner.message === "string" ? inner.message : undefined;
 }
 
 function parseJson(raw: string | undefined): Record<string, any> | undefined {
@@ -90,9 +135,9 @@ export class DesktopBackend {
 
   async #acquire(): Promise<CuaDriverLike> {
     if (this.#driver) return this.#driver;
-    shared ??= createDriver().catch(error => { shared = undefined; throw error; });
-    const driver = await shared;
-    if (!this.#driver) { this.#driver = driver; users++; }
+    connections[CONNECTION] ??= createDriver().catch(error => { connections[CONNECTION] = undefined; throw error; });
+    const driver = await connections[CONNECTION];
+    this.#driver ??= driver;
     return driver;
   }
 
@@ -114,17 +159,29 @@ export class DesktopBackend {
   async call(tool: string, args: Record<string, unknown>, session: string, signal?: AbortSignal): Promise<DriverResult> {
     signal?.throwIfAborted();
     const driver = await this.#acquire();
-    const payload = SESSION_TOOLS.has(tool) && args.session === undefined ? { ...args, session } : args;
+    const shaped = tool === "get_window_state" ? { ...STATE_DEFAULTS, ...args } : args;
+    const payload = SESSION_TOOLS.has(tool) && shaped.session === undefined ? { ...shaped, session } : shaped;
     if (payload.session === session) this.#sessions.add(session);
     const json = JSON.stringify(payload);
     const options = signal ? { signal } : undefined;
-    let raw = await driver.callTool(tool, json, options);
+    const callTool = (name: string, body: string) => driver.callTool(name, body, options).catch((cause: unknown): ToolResult => {
+      const message = innerMessage(cause);
+      // The daemon throws an ended session (numeric code, plain message) that the in-process runtime returned as a
+      // `session_ended` result; restore that result so the revive below handles both.
+      if (message?.startsWith("session has ended")) {
+        return { text: message, images: [], isError: true, errorCode: "session_ended", degraded: false, rawJson: "" };
+      }
+      // The daemon also throws some refusals (e.g. `permissions_pending` until macOS grants land) instead of returning
+      // an error result; surface their message and code.
+      throw message === undefined ? cause : new DesktopError(/^([a-z_]+):/.exec(message)?.[1] ?? "driver_error", message);
+    });
+    let raw = await callTool(tool, json);
     // The driver ends a session after 300 s idle, both our label and the transport's implicit one that unlabeled
     // tools (list_windows, list_apps) use; /desktop reset ends the label. Ordinary calls never revive either.
     if (raw.errorCode === "session_ended") {
       const revive = typeof payload.session === "string" ? { session: payload.session } : {};
-      const revived = await driver.callTool("start_session", JSON.stringify(revive), options);
-      if (!revived.isError) raw = await driver.callTool(tool, json, options);
+      const revived = await callTool("start_session", JSON.stringify(revive));
+      if (!revived.isError) raw = await callTool(tool, json);
     }
     const parsed = parseJson(raw.structuredJson);
     const result: DriverResult = {
@@ -161,10 +218,10 @@ export class DesktopBackend {
   }
 
   status() {
-    return { loaded: Boolean(this.#driver), sessions: [...this.#sessions], snapshots: this.#snapshots.size, sharedUsers: users };
+    return { loaded: Boolean(this.#driver), sessions: [...this.#sessions], snapshots: this.#snapshots.size };
   }
 
-  /** Ends this binding's driver sessions and forgets its snapshots. Keeps the shared runtime loaded. */
+  /** Ends this binding's driver sessions and forgets its snapshots. Keeps the shared connection. */
   async reset(): Promise<void> {
     const driver = this.#driver;
     const sessions = [...this.#sessions];
@@ -176,15 +233,10 @@ export class DesktopBackend {
     await Promise.allSettled(sessions.map(session => driver.callTool("end_session", JSON.stringify({ session }))));
   }
 
-  /** Ends sessions and releases the shared runtime when no other binding uses it. */
+  /** Ends this binding's sessions and detaches it. The process keeps its daemon connection; the daemon keeps running. */
   async shutdown(): Promise<void> {
     await this.reset();
-    const driver = this.#driver;
-    if (!driver) return;
     this.#driver = undefined;
     this.#metadata = undefined;
-    if (--users > 0) return;
-    shared = undefined;
-    await driver.shutdown();
   }
 }

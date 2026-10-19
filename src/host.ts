@@ -19,7 +19,6 @@ export interface DesktopTool {
   label: string;
   description: string;
   parameters: Record<string, unknown>;
-  loadMode?: "essential";
   approval?: "read" | "exec";
   strict?: false;
   annotations?: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean };
