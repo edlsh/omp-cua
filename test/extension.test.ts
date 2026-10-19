@@ -5,13 +5,11 @@ type Handler = (args: Record<string, any>) => Reply | Promise<Reply>;
 
 const calls: { tool: string; args: Record<string, any> }[] = [];
 let handlers: Record<string, Handler> = {};
-let shutdowns = 0;
 
 mock.module("@trycua/cua-driver", () => ({
-  DriverOptions: { create: (options: unknown) => options },
-  CuaDriver: { create: () => ({
+  CuaDriver: { connect: () => ({
+    isAvailable: () => true,
     metadata: async () => ({ driverVersion: "0.34.0", contractVersion: "0.8.0", pid: 1 }),
-    shutdown: async () => { shutdowns++; },
     listToolsJson: async () => JSON.stringify({ tools: [{ name: "page", inputSchema: { required: ["action", "pid", "window_id"] } }] }),
     callTool: async (tool: string, json: string) => {
       const args = JSON.parse(json);
@@ -86,7 +84,6 @@ afterEach(async () => {
 beforeEach(() => {
   snapshotCounter = 0;
   calls.length = 0;
-  shutdowns = 0;
   handlers = { list_windows: () => ({ json: { windows: [window()] } }) };
 });
 
@@ -382,14 +379,13 @@ test("desktop_driver refuses host-configuration tools without reaching the drive
   expect(calls.some(call => call.tool === "set_config")).toBe(false);
 });
 
-test("session shutdown ends this conversation's driver session and releases the shared runtime", async () => {
+test("session shutdown ends this conversation's driver session", async () => {
   handlers.get_window_state = () => stateReply([{ role: "AXWindow" }]);
   const { run, emit } = load();
   await run("desktop_observe", { action: "state", app: "Notes" });
 
   await emit("session_shutdown");
   expect(calls.filter(call => call.tool === "end_session").map(call => call.args)).toEqual([{ session: "omp-default-abc-123" }]);
-  expect(shutdowns).toBe(1);
 });
 
 
@@ -423,10 +419,8 @@ test("shutdown waits for admitted desktop work before ending sessions", async ()
   try {
     await Bun.sleep(10);
     expect(calls.some(call => call.tool === "end_session")).toBe(false);
-    expect(shutdowns).toBe(0);
   } finally { release(); await Promise.all([observing, shutdown]); }
   expect(calls.filter(call => call.tool === "end_session")).toHaveLength(1);
-  expect(shutdowns).toBe(1);
 });
 
 test("invalid targeting and verification are rejected before any batch effects", async () => {
@@ -497,7 +491,7 @@ test("large screenshots fit the inline byte budget without changing pixel coordi
   const result = await run("desktop_observe", { action: "screenshot", pid: 10, window_id: 100 });
   expect(result.isError).toBeUndefined();
   const image = result.content.find((part: any) => part.type === "image");
-  expect(image.mimeType).toBe("image/webp");
+  expect(image.mimeType).toBe("image/jpeg");
   expect(image.data.length).toBeLessThanOrEqual(1_000_000);
   const decoded = sharp(Buffer.from(image.data, "base64"));
   const metadata = await decoded.metadata();

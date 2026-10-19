@@ -1,12 +1,14 @@
-# omp-desktop
+# omp-cua
 
-Native macOS desktop control for OMP agents, backed by the in-process [cua-driver](https://github.com/trycua/cua) SDK (`@trycua/cua-driver` 0.34.0). Input goes to the target window in the background, so the agent does not take over your mouse or focus.
+Native macOS desktop control for OMP agents, backed by the [cua-driver](https://github.com/trycua/cua) `CuaDriver.app` daemon through its SDK (`@trycua/cua-driver` 0.36.0). Input goes to the target window in the background, so the agent does not take over your mouse or focus.
+
+This package was renamed from `omp-desktop` and is published on npm as `@edlsh/omp-cua`. The tools, the `/desktop` command, the `desktop` skill, and the exported `createDesktopExtension` are unchanged. A plugin linked under the old name must be linked again.
 
 ## Tools
 
 - `desktop_observe` (read): `windows`, `apps`, `state` (element tree with `[N]` indices), `screenshot`, `desktop`, `permissions`.
 - `desktop_act` (exec): up to 20 batched steps (`click`, `type`, `set_value`, `key`, `hotkey`, `scroll`, `drag`, `menu`, `launch`, `focus`, `resize`, `clipboard`, `wait`), optional `verify` predicates, and a fresh state afterwards.
-- `desktop_driver` (exec, discoverable): direct access to other cua-driver tools such as `zoom`, `page`, and `browser_*`. The session label is set by omp-desktop; `args.session` is refused.
+- `desktop_driver` (exec, discoverable): direct access to other cua-driver tools such as `zoom`, `page`, and `browser_*`. The session label is set by omp-cua; `args.session` is refused.
 - `/desktop`: status only, never a toggle: driver version, permissions, this conversation's session, and JEV. Anything other than the subcommands below shows usage; it is never sent to the agent as a prompt.
 - `/desktop jev on|off`: JEV targeting for this conversation, off by default. While on, `desktop_act` click/double_click/right_click/type/set_value/scroll steps accept `target: "Save button in the toolbar"` instead of `index`. The `typesafe-ai/jev` model picks the control from a fresh walk and acts only at confidence ≥ 0.5; otherwise the step fails with the top candidates. Controls whose label looks destructive (delete, send, buy, …) are never clicked by target; the agent must pass the index. Needs a Vercel AI Gateway key: `AI_GATEWAY_API_KEY`, or a `jevApiKey` resolver passed to `createDesktopExtension` by a local loader (see Setup), called on first use. If the gateway refuses Jev for billing or key reasons (HTTP 402, 401, or 403), the step fails with `jev_unavailable` and JEV turns itself off with a notice. Privacy: control labels and visible row text of the target window are sent to Vercel AI Gateway; the menu bar, secure fields, disabled controls, and typed text-field values are not.
 - `/desktop reset`: ends this conversation's driver sessions and clears element indices.
@@ -17,26 +19,22 @@ Efficiency defaults: trees are capped at 150 nodes with a 3 s walk budget, menu 
 
 State text keeps one row per element. AppKit custom actions, which the driver reports as unresolved selector dumps, show as their names (`[actions=[read,delete]]`). Multi-line values stay on their row as `\n`. Values longer than 300 characters and rows longer than 500 are cut with a count of the hidden characters; a `query` for that control returns them in full. A `query` searches only the nodes the walk reached, so when the default 150-node walk is cut before any match, the extension searches once more up to 1,500 nodes and says so; an explicit `max_elements` is never raised.
 
-Screenshots larger than 1,000,000 base64 bytes are re-encoded as lossy WebP (quality 85, then 70 or 55 only if needed) without changing pixel dimensions, so click coordinates stay valid. Smaller images are unchanged. If encoding fails or the image still exceeds the budget, the tool reports an error asking for a smaller `max_image_dimension` rather than forwarding oversized image data.
+Screenshots larger than 1,000,000 base64 bytes are re-encoded as lossy JPEG with macOS's built-in `sips` (quality 85, then 70 or 55 only if needed) without changing pixel dimensions, so click coordinates stay valid. Smaller images are unchanged. If encoding fails or the image still exceeds the budget, the tool reports an error asking for a smaller `max_image_dimension` rather than forwarding oversized image data.
 
-cua-driver ends sessions after 5 idle minutes (this conversation's label and the transport's implicit session behind `windows`/`apps`), and `/desktop reset` ends the label immediately; the next desktop call restarts the ended session and retries, so a paused conversation keeps working without restarting OMP.
+cua-driver ends sessions after 5 idle minutes (this conversation's label and the transport's implicit session behind `windows`/`apps`), and `/desktop reset` ends the label immediately; the next desktop call restarts the ended session and retries, so a paused conversation keeps working without restarting OMP. A session switch ends this conversation's sessions and session shutdown ends them and detaches the binding; the next desktop call revives them. The OMP process keeps one daemon connection throughout, shared by the main agent and subagents, because the daemon only lets the connection that started a session label restart it.
 
 ## Setup
 
-Accessibility and Screen Recording must be granted to the app that launches OMP (for example your terminal). Check with `desktop_observe action=permissions` or `/desktop`.
+Requires `CuaDriver.app` 0.36 in `/Applications` (installer: `/bin/bash -c "$(curl -fsSL https://cua.ai/driver/install.sh)"`). The first desktop call starts the daemon (`open -n -g -a CuaDriver --args serve`) when it is not running, and fails with `driver_unavailable` rather than falling back to an in-process runtime. Accessibility and Screen Recording are granted to `CuaDriver.app`, not to the app that launches OMP: run `cua-driver permissions grant` once and approve both. Until then calls fail with `permissions_pending`. Check with `desktop_observe action=permissions` or `/desktop`.
 
-```sh
-bun install
-```
+The SDK's Node addon connects to the daemon's socket. Load the extension one of two ways, never both (duplicate tools):
 
-Then load it one of two ways, never both (duplicate tools):
-
-- From each profile's extensions directory, with a small local loader that imports `createDesktopExtension` and passes a `jevApiKey` resolver backed by your configured secrets manager. The extension then appears in `/extensions`, where it can be turned on or off per profile.
-- As a plugin: `omp plugin link .` (add `--profile <name>` per profile). A linked plugin is turned on or off with `omp plugin enable|disable omp-desktop` and reads the JEV key only from `AI_GATEWAY_API_KEY`.
+- As a plugin: `omp plugin install @edlsh/omp-cua` from npm, or `omp plugin link .` from a checkout after `bun install` (add `--profile <name>` per profile). A plugin is turned on or off with `omp plugin enable|disable @edlsh/omp-cua` and reads the JEV key only from `AI_GATEWAY_API_KEY`.
+- From each profile's extensions directory, with a small local loader that imports `createDesktopExtension` from a checkout and passes a `jevApiKey` resolver backed by your configured secrets manager. The extension then appears in `/extensions`, where it can be turned on or off per profile.
 
 Driver sessions are labeled `omp-<profile>-<session>`.
 
-The package bundles the `desktop` agent skill in `skills/desktop`. OMP loads it with a linked plugin; with a local loader, link that folder into the profile's `skills` directory.
+The package bundles the `desktop` agent skill in `skills/desktop`. OMP loads it with the plugin; with a local loader, link that folder into the profile's `skills` directory.
 
 ## Development
 
