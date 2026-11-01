@@ -25,6 +25,10 @@ mock.module("@trycua/cua-driver", () => ({
 }));
 
 const { createDesktopExtension } = await import("../src/index.ts");
+
+// The driver is mocked, so pin the macOS guard open and let the unit suite run on any host.
+const onMacOS = process.platform === "darwin";
+Object.defineProperty(process, "platform", { value: "darwin" });
 type DesktopOptions = NonNullable<Parameters<typeof createDesktopExtension>[0]>;
 
 const window = (overrides: Record<string, unknown> = {}) => ({
@@ -481,7 +485,8 @@ test("launch targets a unique visible window rather than a returned helper windo
   expect(calls.find(call => call.tool === "hotkey")!.args.window_id).toBe(420);
 });
 
-test("large screenshots fit the inline byte budget without changing pixel coordinates", async () => {
+// Re-encoding shells out to /usr/bin/sips, so this one needs a real Mac.
+test.skipIf(!onMacOS)("large screenshots fit the inline byte budget without changing pixel coordinates", async () => {
   const { default: sharp } = await import("sharp");
   const input = await sharp({ create: { width: 1000, height: 600, channels: 3, background: "#406080" } })
     .png({ compressionLevel: 0 }).toBuffer();
