@@ -1,6 +1,6 @@
 {
   "name": "@edlsh/omp-cua",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Native macOS desktop control for OMP agents, backed by the cua-driver CuaDriver.app daemon",
   "type": "module",
   "keywords": [
