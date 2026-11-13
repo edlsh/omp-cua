@@ -1,14 +1,18 @@
 import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { CuaDriverLike, DriverMetadata, ToolResult } from "@trycua/cua-driver";
+import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
 
 export const SUPPORTED_CONTRACT = "0.8.";
+/** The @trycua/cua-driver SDK version this package pins. */
+export const SDK_VERSION = z.string().parse(createRequire(import.meta.url)("../package.json").dependencies["@trycua/cua-driver"]);
 
 export interface DriverImage { data: string; mimeType: string }
 
