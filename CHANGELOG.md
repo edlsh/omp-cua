@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/edlsh/omp-cua/compare/v0.2.0...v0.3.0) (2026-11-24)
+
+
+### Features
+
+* support OMP 19 and update @trycua/cua-driver to 0.61.3 ([4110678](https://github.com/edlsh/omp-cua/commit/41106784a5a0859f9fb5b14da316f5b021f9318c))
+
 ## [0.2.0](https://github.com/edlsh/omp-cua/compare/v0.1.2...v0.2.0) (2026-11-13)
 
 
