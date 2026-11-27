@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import desktop, { DESKTOP_PROMPT } from "../src/index.ts";
-import { actParameters, driverParameters, observeParameters } from "../src/schema.ts";
+import { actParameters, driverParameters, observeParameters } from "@edlsh/cua-core";
 import type { DesktopAPI, DesktopTool } from "../src/host.ts";
 
 test("default export registers OMP tools with approval tiers, strict:false, and Draft-7 schemas", async () => {
