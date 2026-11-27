@@ -30,6 +30,7 @@ export interface PromptEvent {
 }
 
 export interface DesktopAPI {
+  pi?: { getAgentDir(): string };
   registerTool(tool: DesktopTool): void;
   registerCommand(name: string, command: {
     description: string;
