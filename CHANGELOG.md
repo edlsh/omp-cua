@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/edlsh/omp-cua/compare/v0.3.0...v0.4.0) (2026-11-28)
+
+
+### Features
+
+* add cua.json config, check:package, OMP test parity, and CI host/macOS matrix ([3ba13c9](https://github.com/edlsh/omp-cua/commit/3ba13c988fec0fc3d70f0f51f36720bffd977f58))
+* add diff reads, newer cua-driver step fields, health_report, and update deps ([31811e6](https://github.com/edlsh/omp-cua/commit/31811e6f0bc98d2ea9b8481ea9eaa686f82d5133))
+
+
+### Bug Fixes
+
+* read daemon input_schema, dynamic session routing, JEV privacy and reconnect ([b8bf16a](https://github.com/edlsh/omp-cua/commit/b8bf16a7b27020f00f5182ce507a5187402af953))
+
 ## [0.3.0](https://github.com/edlsh/omp-cua/compare/v0.2.0...v0.3.0) (2026-11-24)
 
 
