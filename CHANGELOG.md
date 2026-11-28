@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/edlsh/omp-cua/compare/v0.4.0...v0.4.1) (2026-11-28)
+
+
+### Performance Improvements
+
+* delegate shared desktop automation to @edlsh/cua-core ([874a29a](https://github.com/edlsh/omp-cua/commit/874a29adddb85ac12b18e7ad177ded86b0521bf4))
+
 ## [0.4.0](https://github.com/edlsh/omp-cua/compare/v0.3.0...v0.4.0) (2026-11-28)
 
 
