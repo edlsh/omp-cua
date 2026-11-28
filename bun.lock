@@ -5,7 +5,7 @@
     "": {
       "name": "@edlsh/omp-cua",
       "dependencies": {
-        "@edlsh/cua-core": "^0.2.0",
+        "@edlsh/cua-core": "^0.2.1",
       },
       "devDependencies": {
         "@oh-my-pi/pi-coding-agent": "19.2.1",
@@ -30,7 +30,7 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@edlsh/cua-core": ["@edlsh/cua-core@0.2.0", "", { "dependencies": { "@trycua/cua-driver": "0.64.2", "zod": "4.6.7" }, "os": "darwin" }, "sha512-dlko8XogmSyamuZ6X/00HLWqg0M6D4ERyvyvoU48l+im+r97ZKK2Ef+4PShMdy3E6PNKLPQnlEtDeQctbUdGHw=="],
+    "@edlsh/cua-core": ["@edlsh/cua-core@0.2.1", "", { "dependencies": { "@trycua/cua-driver": "0.64.2", "zod": "4.6.7" } }, "sha512-R6aOLXSduCkZ0BXB+RZ6vghZtTdHz3NqL5phZaEi2Z5nFfiLFoqRvhlrspXxUdvc/x0jlA+odkVapFEDbuU9YQ=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
